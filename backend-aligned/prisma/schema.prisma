@@ -1,0 +1,279 @@
+// ALIGNED WITH mockData.ts.txt STRUCTURE
+// Prisma Schema matching exact mock data types
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(cuid())
+  name            String
+  email           String   @unique
+  password        String
+  phoneNumber     String?
+  role            String   // 'tenant' | 'technician' | 'operations' | 'admin'
+  status          String   @default("active") // 'active' | 'inactive'
+  avatarUrl       String?
+  buildingId      String?
+  unitNumber      String?
+  lastLoginAt     DateTime?
+  emailVerified   Boolean  @default(false)
+  twoFactorEnabled Boolean @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  jobsAsTenant    MaintenanceJob[] @relation("TenantJobs")
+  technician      Technician?
+  sentMessages    ChatMessage[]    @relation("SentMessages")
+  auditLogs       AuditLog[]       @relation("UserAuditLogs")
+  notifications   Notification[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model MaintenanceJob {
+  id              String   @id @default(cuid())
+  ticketId        String   @unique // "TKT-2024-001"
+  issueCategory   String
+  aiConfidence    Float
+  priority        String   // 'low' | 'medium' | 'high' | 'urgent'
+  building        String
+  unit            String
+  tenant          String
+  assignedTechnician String?
+  technicianId    String?
+  slaDeadline     DateTime
+  status          String   @default("pending") // 'pending' | 'assigned' | 'in-progress' | 'completed' | 'escalated'
+  description     String   @db.Text
+  estimatedDuration Int?   // in minutes
+  actualDuration  Int?     // in minutes
+  costEstimate    Float?
+  actualCost      Float?
+  images          String[]
+  tenantRating    Int?
+  tenantFeedback  String?  @db.Text
+  completedAt     DateTime?
+  address         String?
+  latitude        Float?
+  longitude       Float?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  tenantId        String?
+  tenantUser      User?     @relation("TenantJobs", fields: [tenantId], references: [id])
+  technician      Technician? @relation(fields: [technicianId], references: [id])
+  chatMessages    ChatMessage[]
+  auditLogs       AuditLog[]
+  timeTracking    TimeTracking[]
+  materials       Material[]
+  assignments     JobAssignment[]
+
+  @@index([ticketId])
+  @@index([status])
+  @@index([priority])
+  @@index([building])
+  @@index([technicianId])
+  @@index([tenantId])
+  @@index([slaDeadline])
+}
+
+model Technician {
+  id                String   @id @default(cuid())
+  name              String
+  avatar            String
+  skills            String[]
+  currentWorkload   Int      @default(0)
+  maxWorkload       Int      @default(6)
+  availability      String   @default("available") // 'available' | 'busy' | 'offline'
+  onTimePercentage  Float    @default(0)
+  slaCompliance     Float    @default(0)
+  phone             String
+  email             String   @unique
+  technicianCode    String?  @unique // "TCH-1023"
+  rating            Float?   @default(0)
+  totalJobsCompleted Int?    @default(0)
+  averageResponseTime Float? @default(0)
+  currentLatitude   Float?
+  currentLongitude  Float?
+  locationUpdatedAt DateTime?
+  isVerified        Boolean  @default(false)
+  hourlyRate        Float?
+  assignedBuildings String[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  userId            String?  @unique
+  user              User?    @relation(fields: [userId], references: [id])
+  assignedJobs      MaintenanceJob[]
+  timeTracking      TimeTracking[]
+  schedules         TechnicianSchedule[]
+  assignments       JobAssignment[]
+
+  @@index([email])
+  @@index([availability])
+  @@index([technicianCode])
+}
+
+model Building {
+  id                  String   @id @default(cuid())
+  name                String   @unique
+  address             String
+  openTickets         Int      @default(0)
+  totalUnits          Int
+  slaRisk             String   @default("low") // 'low' | 'medium' | 'high'
+  assignedTechnicians String[] // technician IDs
+  latitude            Float?
+  longitude           Float?
+  manager             String?
+  contactNumber       String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([name])
+  @@index([slaRisk])
+}
+
+model ChatMessage {
+  id            String   @id @default(cuid())
+  sender        String
+  senderRole    String   // 'operations' | 'technician' | 'tenant'
+  message       String   @db.Text
+  timestamp     DateTime @default(now())
+  ticketId      String?
+  conversationId String?
+  receiverId    String?
+  status        String   @default("sent") // 'sent' | 'delivered' | 'read'
+  type          String   @default("text") // 'text' | 'image' | 'file'
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  senderUser    User?    @relation("SentMessages", fields: [sender], references: [name])
+  job           MaintenanceJob? @relation(fields: [ticketId], references: [ticketId])
+
+  @@index([conversationId])
+  @@index([ticketId])
+  @@index([sender])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String
+  user        String
+  details     String   @db.Text
+  timestamp   DateTime @default(now())
+  ticketId    String?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  userRecord  User?    @relation("UserAuditLogs", fields: [user], references: [name])
+  job         MaintenanceJob? @relation(fields: [ticketId], references: [ticketId])
+
+  @@index([user])
+  @@index([ticketId])
+  @@index([timestamp])
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  body        String   @db.Text
+  type        String   // 'job_assigned' | 'job_updated' | 'message_received' | 'sla_warning' | 'system'
+  data        Json?
+  isRead      Boolean  @default(false)
+  ticketId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+model TimeTracking {
+  id            String   @id @default(cuid())
+  jobId         String
+  technicianId  String
+  startTime     DateTime
+  endTime       DateTime?
+  duration      Int?     // in minutes
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  job           MaintenanceJob @relation(fields: [jobId], references: [id])
+  technician    Technician @relation(fields: [technicianId], references: [id])
+
+  @@index([jobId])
+  @@index([technicianId])
+}
+
+model Material {
+  id          String   @id @default(cuid())
+  jobId       String
+  name        String
+  quantity    Int
+  unitPrice   Float
+  totalCost   Float
+  supplier    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  job         MaintenanceJob @relation(fields: [jobId], references: [id])
+
+  @@index([jobId])
+}
+
+model JobAssignment {
+  id            String   @id @default(cuid())
+  jobId         String
+  technicianId  String
+  assignedBy    String
+  assignedAt    DateTime @default(now())
+  unassignedAt  DateTime?
+  reason        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  job           MaintenanceJob @relation(fields: [jobId], references: [id])
+  technician    Technician @relation(fields: [technicianId], references: [id])
+
+  @@index([jobId])
+  @@index([technicianId])
+}
+
+model TechnicianSchedule {
+  id            String   @id @default(cuid())
+  technicianId  String
+  date          DateTime
+  startTime     String   // "09:00"
+  endTime       String   // "17:00"
+  isAvailable   Boolean  @default(true)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  technician    Technician @relation(fields: [technicianId], references: [id])
+
+  @@index([technicianId])
+  @@index([date])
+}

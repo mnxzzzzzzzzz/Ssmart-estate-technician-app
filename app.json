@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "SmartEstate Technician",
+    "slug": "smartestate-technician",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#6366F1"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.smartestate.technician"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#6366F1"
+      },
+      "package": "com.smartestate.technician"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
