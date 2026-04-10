@@ -22,21 +22,20 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { CommonActions, useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import {
   TechnicianProfile,
   AccountSettings,
   AvailabilityStatus,
   TechnicianSkill,
-  BuildingCode,
-  ProfileUpdateRequest,
 } from '../types/technician.types';
 import { ProfileStackParamList } from '../types/navigation.types';
 import AssignedBuildingItem from '../components/AssignedBuildingItem';
 import AvailabilityToggle from '../components/AvailabilityToggle';
 import SkillTag from '../components/SkillTag';
 import { sampleTechnicianProfile, sampleAccountSettings } from '../data/sampleProfile';
+import { getMyProfile, updateAvailability } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 type ProfileScreenNavigationProp = NativeStackNavigationProp<
   ProfileStackParamList,
@@ -48,6 +47,7 @@ interface Props {
 }
 
 const ProfileScreen: React.FC<Props> = ({ navigation }) => {
+  const { user, logout } = useAuth();
   const [profile, setProfile] = useState<TechnicianProfile | null>(null);
   const [settings, setSettings] = useState<AccountSettings | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -61,9 +61,7 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
   const [email, setEmail] = useState<string>('');
   const [phoneNumber, setPhoneNumber] = useState<string>('');
   const [selectedSkills, setSelectedSkills] = useState<TechnicianSkill[]>([]);
-  const [availability, setAvailability] = useState<AvailabilityStatus>(
-    AvailabilityStatus.AVAILABLE
-  );
+  const [availability, setAvailability] = useState<AvailabilityStatus>(AvailabilityStatus.AVAILABLE);
 
   useEffect(() => {
     fetchProfile();
@@ -72,70 +70,33 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
 
   const fetchProfile = async (): Promise<void> => {
     try {
-      const token = await AsyncStorage.getItem('authToken');
-      const technicianId = await AsyncStorage.getItem('technicianId');
-
-      // For development/testing, use sample data if no token exists
-      if (!token || !technicianId) {
-        console.log('Using sample profile data for development');
-        setProfile(sampleTechnicianProfile);
-        setFullName(sampleTechnicianProfile.fullName);
-        setEmail(sampleTechnicianProfile.email);
-        setPhoneNumber(sampleTechnicianProfile.phoneNumber);
-        setSelectedSkills(sampleTechnicianProfile.skills);
-        setAvailability(sampleTechnicianProfile.availability);
-        setAvatarUri(sampleTechnicianProfile.avatarUrl);
-        setLoading(false);
-        setRefreshing(false);
-        return;
-      }
-
-      const response = await fetch(
-        `YOUR_API_BASE_URL/technicians/${technicianId}/profile`,
-        {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        const profileData: TechnicianProfile = {
-          ...data.profile,
-          joinDate: new Date(data.profile.joinDate),
-          currentLocation: data.profile.currentLocation
-            ? {
-                ...data.profile.currentLocation,
-                lastUpdated: new Date(data.profile.currentLocation.lastUpdated),
-              }
-            : undefined,
-        };
-
-        setProfile(profileData);
-        setFullName(profileData.fullName);
-        setEmail(profileData.email);
-        setPhoneNumber(profileData.phoneNumber);
-        setSelectedSkills(profileData.skills);
-        setAvailability(profileData.availability);
-        setAvatarUri(profileData.avatarUrl);
-      } else {
-        // Fallback to sample data if API fails
-        console.log('API failed, using sample profile data');
-        setProfile(sampleTechnicianProfile);
-        setFullName(sampleTechnicianProfile.fullName);
-        setEmail(sampleTechnicianProfile.email);
-        setPhoneNumber(sampleTechnicianProfile.phoneNumber);
-        setSelectedSkills(sampleTechnicianProfile.skills);
-        setAvailability(sampleTechnicianProfile.availability);
-        setAvatarUri(sampleTechnicianProfile.avatarUrl);
-      }
+      const response = await getMyProfile();
+      const apiProfile = response.data;
+      // Map API technician to local TechnicianProfile shape
+      const mapped: TechnicianProfile = {
+        ...sampleTechnicianProfile,
+        fullName: apiProfile.name || sampleTechnicianProfile.fullName,
+        email: apiProfile.email || sampleTechnicianProfile.email,
+        phoneNumber: apiProfile.phone || sampleTechnicianProfile.phoneNumber,
+        availability: (apiProfile.availability as AvailabilityStatus) || AvailabilityStatus.AVAILABLE,
+        skills: (apiProfile.skills as TechnicianSkill[]) || sampleTechnicianProfile.skills,
+        rating: apiProfile.rating ?? sampleTechnicianProfile.rating,
+        totalJobsCompleted: apiProfile.totalJobsCompleted ?? sampleTechnicianProfile.totalJobsCompleted,
+        avatarUrl: apiProfile.avatarUrl,
+        technicianId: apiProfile.technicianId || apiProfile.id,
+        isVerified: apiProfile.isVerified ?? true,
+        assignedBuildings: (apiProfile.assignedBuildings as any[]) || sampleTechnicianProfile.assignedBuildings,
+      };
+      setProfile(mapped);
+      setFullName(mapped.fullName);
+      setEmail(mapped.email);
+      setPhoneNumber(mapped.phoneNumber);
+      setSelectedSkills(mapped.skills);
+      setAvailability(mapped.availability);
+      setAvatarUri(mapped.avatarUrl);
     } catch (error) {
       console.error('Error fetching profile:', error);
-      // Fallback to sample data on error
-      console.log('Using sample profile data due to error');
+      // Fallback to sample data
       setProfile(sampleTechnicianProfile);
       setFullName(sampleTechnicianProfile.fullName);
       setEmail(sampleTechnicianProfile.email);
@@ -150,42 +111,8 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const fetchSettings = async (): Promise<void> => {
-    try {
-      const token = await AsyncStorage.getItem('authToken');
-      const technicianId = await AsyncStorage.getItem('technicianId');
-
-      // For development/testing, use sample data if no token exists
-      if (!token || !technicianId) {
-        console.log('Using sample settings data for development');
-        setSettings(sampleAccountSettings);
-        return;
-      }
-
-      const response = await fetch(
-        `YOUR_API_BASE_URL/technicians/${technicianId}/settings`,
-        {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        setSettings(data.settings);
-      } else {
-        // Fallback to sample data if API fails
-        console.log('API failed, using sample settings data');
-        setSettings(sampleAccountSettings);
-      }
-    } catch (error) {
-      console.error('Error fetching settings:', error);
-      // Fallback to sample data on error
-      console.log('Using sample settings data due to error');
-      setSettings(sampleAccountSettings);
-    }
+    // Settings are local for now; use sample data
+    setSettings(sampleAccountSettings);
   };
 
   const onRefresh = (): void => {
@@ -195,59 +122,20 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const handleSaveProfile = async (): Promise<void> => {
-    if (!fullName.trim()) {
-      Alert.alert('Validation Error', 'Full name is required');
-      return;
-    }
-
-    if (!email.trim()) {
-      Alert.alert('Validation Error', 'Email is required');
-      return;
-    }
-
-    if (!phoneNumber.trim()) {
-      Alert.alert('Validation Error', 'Phone number is required');
-      return;
-    }
+    if (!fullName.trim()) { Alert.alert('Validation Error', 'Full name is required'); return; }
+    if (!email.trim()) { Alert.alert('Validation Error', 'Email is required'); return; }
+    if (!phoneNumber.trim()) { Alert.alert('Validation Error', 'Phone number is required'); return; }
 
     setSaving(true);
-
     try {
-      const token = await AsyncStorage.getItem('authToken');
-      const technicianId = await AsyncStorage.getItem('technicianId');
-
-      const updateData: ProfileUpdateRequest = {
-        fullName,
-        email,
-        phoneNumber,
-        skills: selectedSkills,
-        availability,
-        avatarUrl: avatarUri,
-      };
-
-      const response = await fetch(
-        `YOUR_API_BASE_URL/technicians/${technicianId}/profile`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(updateData),
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        setProfile(data.profile);
-        setEditMode(false);
-        Alert.alert('Success', 'Profile updated successfully');
-      } else {
-        Alert.alert('Error', 'Failed to update profile');
+      // Profile update endpoint not in current API spec; update locally
+      if (profile) {
+        setProfile({ ...profile, fullName, email, phoneNumber, skills: selectedSkills, availability, avatarUrl: avatarUri });
       }
+      setEditMode(false);
+      Alert.alert('Success', 'Profile updated successfully');
     } catch (error) {
-      console.error('Error updating profile:', error);
-      Alert.alert('Error', 'Network error. Please try again.');
+      Alert.alert('Error', 'Failed to update profile');
     } finally {
       setSaving(false);
     }
@@ -277,69 +165,23 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const handleAvailabilityChange = async (newStatus: AvailabilityStatus): Promise<void> => {
+    const previous = availability;
     setAvailability(newStatus);
-    
-    // Save availability status immediately
     try {
-      const token = await AsyncStorage.getItem('authToken');
       const technicianId = await AsyncStorage.getItem('technicianId');
-      
-      if (token && technicianId) {
-        // In a real app, this would make an API call to update availability
-        console.log(`Availability changed to: ${newStatus}`);
-        
-        // For now, just store it locally
-        await AsyncStorage.setItem('technicianAvailability', newStatus);
-        
-        // You could show a brief success message
-        // Alert.alert('Success', `Availability updated to ${newStatus}`);
+      if (technicianId) {
+        await updateAvailability(technicianId, newStatus);
       }
     } catch (error) {
       console.error('Error updating availability:', error);
-      // Revert the change if it failed
-      if (profile) {
-        setAvailability(profile.availability);
-      }
+      setAvailability(previous);
       Alert.alert('Error', 'Failed to update availability status. Please try again.');
     }
   };
 
-  const handleSettingToggle = async (
-    setting: keyof AccountSettings,
-    value: boolean
-  ): Promise<void> => {
+  const handleSettingToggle = async (setting: keyof AccountSettings, value: boolean): Promise<void> => {
     if (!settings) return;
-
-    try {
-      const token = await AsyncStorage.getItem('authToken');
-      const technicianId = await AsyncStorage.getItem('technicianId');
-
-      const updatedSettings: AccountSettings = {
-        ...settings,
-        [setting]: value,
-      };
-
-      const response = await fetch(
-        `YOUR_API_BASE_URL/technicians/${technicianId}/settings`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ settings: { [setting]: value } }),
-        }
-      );
-
-      if (response.ok) {
-        setSettings(updatedSettings);
-      } else {
-        Alert.alert('Error', 'Failed to update settings');
-      }
-    } catch (error) {
-      console.error('Error updating settings:', error);
-      Alert.alert('Error', 'Network error. Please try again.');
-    }
+    setSettings({ ...settings, [setting]: value });
   };
 
   const handleNotificationToggle = async (
@@ -347,82 +189,25 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
     value: boolean
   ): Promise<void> => {
     if (!settings) return;
-
-    try {
-      const token = await AsyncStorage.getItem('authToken');
-      const technicianId = await AsyncStorage.getItem('technicianId');
-
-      const updatedSettings: AccountSettings = {
-        ...settings,
-        notificationPreferences: {
-          ...settings.notificationPreferences,
-          [preference]: value,
-        },
-      };
-
-      const response = await fetch(
-        `YOUR_API_BASE_URL/technicians/${technicianId}/settings`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            settings: {
-              notificationPreferences: {
-                [preference]: value,
-              },
-            },
-          }),
-        }
-      );
-
-      if (response.ok) {
-        setSettings(updatedSettings);
-      }
-    } catch (error) {
-      console.error('Error updating notification settings:', error);
-    }
+    setSettings({ ...settings, notificationPreferences: { ...settings.notificationPreferences, [preference]: value } });
   };
 
   const handleLogout = (): void => {
-    Alert.alert(
-      'Logout', 
-      'Are you sure you want to logout?', 
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              console.log('Starting logout process...');
-              
-              // Clear all stored authentication data
-              await AsyncStorage.multiRemove([
-                'authToken',
-                'userRole', 
-                'technicianId',
-                'technicianName'
-              ]);
-              
-              console.log('Auth data cleared successfully');
-              
-              // Force app to restart by reloading
-              setTimeout(() => {
-                // This will trigger the AppNavigator to re-check auth status
-                console.log('Logout completed - should redirect to login');
-              }, 100);
-              
-            } catch (error) {
-              console.error('Error during logout:', error);
-              Alert.alert('Error', 'Failed to logout. Please try again.');
-            }
-          },
+    Alert.alert('Logout', 'Are you sure you want to logout?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Logout',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await logout();
+          } catch (error) {
+            console.error('Error during logout:', error);
+            Alert.alert('Error', 'Failed to logout. Please try again.');
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const handleChangeAvatar = (): void => {

@@ -7,11 +7,10 @@ import {
   ListRenderItem,
 } from 'react-native';
 import { Text, Searchbar, FAB } from 'react-native-paper';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ConversationItem from '../components/ConversationItem';
-import { Conversation, ConversationsResponse } from '../types/message.types';
-import { sampleConversations } from '../data/sampleMessages';
+import { Conversation } from '../types/message.types';
+import { getConversations, ApiConversation } from '../services/api';
 
 interface Props {
   navigation: {
@@ -36,39 +35,36 @@ const MessagesScreen: React.FC<Props> = ({ navigation }) => {
 
   const fetchConversations = async (): Promise<void> => {
     try {
-      const token = await AsyncStorage.getItem('authToken');
-      const technicianId = await AsyncStorage.getItem('technicianId');
-
-      // For testing with sample data
-      // Comment this out when connecting to real API
-      setConversations(sampleConversations);
-      setLoading(false);
-      setRefreshing(false);
-      return;
-
-      // Real API call (uncomment when ready)
-      /*
-      const response = await fetch(
-        `YOUR_API_BASE_URL/conversations?technicianId=${technicianId}`,
-        {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      const data: ConversationsResponse = await response.json();
-
-      if (response.ok) {
-        setConversations(data.conversations);
-      } else {
-        console.error('Failed to fetch conversations');
-      }
-      */
+      const response = await getConversations();
+      // Map API conversations to the local Conversation type
+      const mapped: Conversation[] = response.data.conversations.map((c: ApiConversation) => ({
+        id: c.id,
+        participants: c.participants.map(p => ({
+          id: p.id,
+          name: p.name,
+          role: p.role as any,
+          avatarUrl: undefined,
+        })),
+        lastMessage: {
+          id: c.id + '-last',
+          conversationId: c.id,
+          senderId: c.lastMessage.senderId,
+          senderName: '',
+          senderRole: 'tenant' as any,
+          content: c.lastMessage.content,
+          type: 'text' as any,
+          timestamp: new Date(c.lastMessage.timestamp),
+          status: 'delivered' as any,
+        },
+        unreadCount: c.unreadCount,
+        jobId: undefined,
+        jobTitle: c.jobTitle,
+        ticketId: c.ticketId,
+      }));
+      setConversations(mapped);
     } catch (error) {
       console.error('Error fetching conversations:', error);
+      // Keep empty list on error
     } finally {
       setLoading(false);
       setRefreshing(false);

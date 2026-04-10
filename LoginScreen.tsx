@@ -5,6 +5,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
+  Dimensions,
 } from 'react-native';
 import {
   TextInput,
@@ -13,9 +15,11 @@ import {
   HelperText,
   ActivityIndicator,
 } from 'react-native-paper';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AuthStackParamList } from './types/navigation.types';
+import { useAuth } from './contexts/AuthContext';
+
+const { width } = Dimensions.get('window');
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'Login'>;
 
@@ -24,6 +28,7 @@ interface Props {
 }
 
 const LoginScreen: React.FC<Props> = ({ navigation }) => {
+  const { login } = useAuth();
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [secureTextEntry, setSecureTextEntry] = useState<boolean>(true);
@@ -65,43 +70,11 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
     setLoading(true);
 
     try {
-      // Mock authentication - simulate API delay
-      console.log('Starting login process for:', email);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Mock credentials validation
-      const validCredentials = [
-        { email: 'mike.johnson@smartestate.com', password: 'password123', name: 'Mike Johnson', id: 'tech-1' },
-        { email: 'sarah.williams@smartestate.com', password: 'password123', name: 'Sarah Williams', id: 'tech-2' },
-        { email: 'david.chen@smartestate.com', password: 'password123', name: 'David Chen', id: 'tech-3' },
-      ];
-
-      const user = validCredentials.find(
-        cred => cred.email.toLowerCase() === email.trim().toLowerCase() && cred.password === password
-      );
-
-      if (user) {
-        console.log('Login successful for user:', user.name);
-        
-        // Store mock JWT token and user data
-        const authToken = 'mock-jwt-token-' + Date.now();
-        await AsyncStorage.multiSet([
-          ['authToken', authToken],
-          ['userRole', 'technician'],
-          ['technicianId', user.id],
-          ['technicianName', user.name]
-        ]);
-        
-        console.log('Auth token stored:', authToken);
-        console.log('Login completed - AppNavigator should detect change');
-        
-      } else {
-        console.log('Login failed - invalid credentials for email:', email);
-        setError('Invalid credentials. Please try again.');
-      }
-    } catch (err) {
+      await login(email.trim(), password);
+      // AuthContext will update isAuthenticated, AppNavigator re-renders automatically
+    } catch (err: any) {
       console.error('Login error:', err);
-      setError('Login failed. Please try again.');
+      setError(err?.message || 'Invalid credentials. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -122,8 +95,11 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
       >
         {/* Logo/Brand Header */}
         <View style={styles.logoContainer}>
-          <Text style={styles.logoText}>SmartEstate</Text>
-          <Text style={styles.brandText}>Maintenance Pro</Text>
+          <Image
+            source={require('./assets/Smart estate.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
           <Text style={styles.brandSubtext}>Technician Portal</Text>
         </View>
 
@@ -249,22 +225,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 40,
   },
-  logoText: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#6366F1',
+  logo: {
+    width: width * 0.6,
+    height: 120,
     marginBottom: 8,
-  },
-  brandText: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#6366F1',
-    marginBottom: 4,
   },
   brandSubtext: {
     fontSize: 16,
     color: '#8B5CF6',
-    fontWeight: '500',
+    fontWeight: '600',
+    letterSpacing: 1,
   },
   formContainer: {
     backgroundColor: '#FFFFFF',

@@ -18,14 +18,8 @@ import {
   MessageType,
   MessageStatus,
   UserRole,
-  SendMessageRequest,
-  SendMessageResponse,
 } from '../types/message.types';
-import {
-  sampleMessages,
-  getMessagesByConversationId,
-  getConversationById,
-} from '../data/sampleMessages';
+import { getMessages, sendMessage as apiSendMessage, ApiMessage } from '../services/api';
 import { useTabBar } from '../contexts/TabBarContext';
 
 interface Props {
@@ -74,64 +68,34 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
   const loadCurrentUser = async (): Promise<void> => {
     try {
       const technicianId = await AsyncStorage.getItem('technicianId');
-      if (technicianId) {
-        setCurrentUserId(technicianId);
-      }
+      if (technicianId) setCurrentUserId(technicianId);
     } catch (error) {
       console.error('Error loading user:', error);
     }
   };
 
   const loadConversation = async (): Promise<void> => {
-    try {
-      const conv = getConversationById(conversationId);
-      setConversation(conv);
-    } catch (error) {
-      console.error('Error loading conversation:', error);
-    }
+    // Conversation metadata is passed via route params
   };
 
   const fetchMessages = async (): Promise<void> => {
     try {
-      const token = await AsyncStorage.getItem('authToken');
-
-      // For testing with sample data
-      // Comment this out when connecting to real API
-      const conversationMessages = getMessagesByConversationId(conversationId);
-      setMessages(conversationMessages.reverse()); // Reverse to show newest at bottom
-      setLoading(false);
-      
-      // Scroll to bottom after loading
-      setTimeout(() => {
-        scrollToBottom();
-      }, 100);
-      return;
-
-      // Real API call (uncomment when ready)
-      /*
-      const response = await fetch(
-        `YOUR_API_BASE_URL/conversations/${conversationId}/messages`,
-        {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      const data: MessagesResponse = await response.json();
-
-      if (response.ok) {
-        setMessages(data.messages.reverse());
-        setTimeout(() => scrollToBottom(), 100);
-      } else {
-        Alert.alert('Error', 'Failed to load messages');
-      }
-      */
+      const response = await getMessages(conversationId);
+      const mapped: Message[] = (response.data || []).map((m: ApiMessage) => ({
+        id: m.id,
+        conversationId: m.conversationId,
+        senderId: m.senderId,
+        senderName: m.senderName,
+        senderRole: m.senderRole as UserRole,
+        content: m.content,
+        type: (m.type as MessageType) || MessageType.TEXT,
+        timestamp: new Date(m.timestamp),
+        status: (m.status as MessageStatus) || MessageStatus.DELIVERED,
+      }));
+      setMessages(mapped.reverse());
+      setTimeout(() => scrollToBottom(), 100);
     } catch (error) {
       console.error('Error fetching messages:', error);
-      Alert.alert('Error', 'Network error. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -163,11 +127,12 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
     scrollToBottom();
 
     try {
-      const token = await AsyncStorage.getItem('authToken');
+      await apiSendMessage({
+        conversationId,
+        message: content,
+        type,
+      });
 
-      // For testing - simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      
       // Update message status to sent
       setMessages((prev) =>
         prev.map((msg) =>
@@ -176,59 +141,14 @@ const ChatScreen: React.FC<Props> = ({ route, navigation }) => {
             : msg
         )
       );
-      
-      setSending(false);
-      return;
-
-      // Real API call (uncomment when ready)
-      /*
-      const requestBody: SendMessageRequest = {
-        conversationId,
-        content,
-        type,
-      };
-
-      const response = await fetch(`YOUR_API_BASE_URL/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      const data: SendMessageResponse = await response.json();
-
-      if (response.ok) {
-        // Replace temp message with real message
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === tempMessage.id ? data.message : msg
-          )
-        );
-      } else {
-        // Mark message as failed
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === tempMessage.id
-              ? { ...msg, status: MessageStatus.FAILED }
-              : msg
-          )
-        );
-        Alert.alert('Error', 'Failed to send message');
-      }
-      */
     } catch (error) {
       console.error('Error sending message:', error);
-      // Mark message as failed
       setMessages((prev) =>
         prev.map((msg) =>
-          msg.id === tempMessage.id
-            ? { ...msg, status: MessageStatus.FAILED }
-            : msg
+          msg.id === tempMessage.id ? { ...msg, status: MessageStatus.FAILED } : msg
         )
       );
-      Alert.alert('Error', 'Network error. Please try again.');
+      Alert.alert('Error', 'Failed to send message. Please try again.');
     } finally {
       setSending(false);
     }
